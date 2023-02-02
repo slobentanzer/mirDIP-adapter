@@ -1,10 +1,8 @@
 import biocypher
 from adapter import (
-    ExampleAdapter,
-    ExampleAdapterNodeType,
-    ExampleAdapterEdgeType,
-    ExampleAdapterProteinField,
-    ExampleAdapterDiseaseField,
+    mirDIPAdapter,
+    mirDIPAdapterNodeType,
+    mirDIPAdapterEdgeType,
 )
 
 # Instantiate the BioCypher driver
@@ -22,45 +20,32 @@ driver.show_ontology_structure()
 # Choose node types to include in the knowledge graph.
 # These are defined in the adapter (`adapter.py`).
 node_types = [
-    ExampleAdapterNodeType.PROTEIN,
-    ExampleAdapterNodeType.DISEASE,
-]
-
-# Choose protein adapter fields to include in the knowledge graph.
-# These are defined in the adapter (`adapter.py`).
-node_fields = [
-    # Proteins
-    ExampleAdapterProteinField.ID,
-    ExampleAdapterProteinField.SEQUENCE,
-    ExampleAdapterProteinField.DESCRIPTION,
-    ExampleAdapterProteinField.TAXON,
-    # Diseases
-    ExampleAdapterDiseaseField.ID,
-    ExampleAdapterDiseaseField.NAME,
-    ExampleAdapterDiseaseField.DESCRIPTION,
+    mirDIPAdapterNodeType.PROTEIN,
+    mirDIPAdapterNodeType.MICRORNA,
 ]
 
 edge_types = [
-    ExampleAdapterEdgeType.PROTEIN_PROTEIN_INTERACTION,
-    ExampleAdapterEdgeType.PROTEIN_DISEASE_ASSOCIATION,
+    mirDIPAdapterEdgeType.MIRNA_PROTEIN_INTERACTION,
 ]
 
 # Create a protein adapter instance
-adapter = ExampleAdapter(
+adapter = mirDIPAdapter(
     node_types=node_types,
-    node_fields=node_fields,
     edge_types=edge_types,
     # we can leave edge fields empty, defaulting to all fields in the adapter
+    test_mode=True,
 )
+
+adapter._read_data()
 
 
 # Create a knowledge graph from the adapter
 driver.write_nodes(adapter.get_nodes())
-driver.write_edges(adapter.get_edges())
+# driver.write_edges(adapter.get_edges())
 
-# Write admin import statement
-driver.write_import_call()
+# # Write admin import statement
+# driver.write_import_call()
 
-# Check output
-driver.log_duplicates()
-driver.log_missing_bl_types()
+# # Check output
+# driver.log_duplicates()
+# driver.log_missing_bl_types()

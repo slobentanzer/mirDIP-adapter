@@ -3,12 +3,12 @@
 protein:
     represented_as: node
     preferred_id: uniprot
-    label_in_input: uniprot_protein
+    label_in_input: protein
 
-disease:
+microRNA:
     represented_as: node
-    preferred_id: doid
-    label_in_input: do_disease
+    preferred_id: name
+    label_in_input: mirna
     
 protein interaction:
     is_a: pairwise molecular interaction

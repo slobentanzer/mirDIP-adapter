@@ -1,70 +1,52 @@
-import random
-import string
 from enum import Enum, auto
 from itertools import chain
+import polars as pl
+import os
+from pypath.utils import mapping
+from tqdm import tqdm
+from biocypher._logger import logger
+
+logger.debug(f"Loading module {__name__}.")
 
 
-class ExampleAdapterNodeType(Enum):
+class mirDIPAdapterNodeType(Enum):
     """
     Define types of nodes the adapter can provide.
     """
 
     PROTEIN = auto()
-    DISEASE = auto()
+    # pypath mapping to ensg fails, use uniprot in the meantime
+    MICRORNA = auto()
 
 
-class ExampleAdapterProteinField(Enum):
-    """
-    Define possible fields the adapter can provide for proteins.
-    """
-
-    ID = "id"
-    SEQUENCE = "sequence"
-    DESCRIPTION = "description"
-    TAXON = "taxon"
-
-
-class ExampleAdapterDiseaseField(Enum):
-    """
-    Define possible fields the adapter can provide for diseases.
-    """
-
-    ID = "id"
-    NAME = "name"
-    DESCRIPTION = "description"
-
-
-class ExampleAdapterEdgeType(Enum):
+class mirDIPAdapterEdgeType(Enum):
     """
     Enum for the types of the protein adapter.
     """
 
-    PROTEIN_PROTEIN_INTERACTION = "protein_protein_interaction"
-    PROTEIN_DISEASE_ASSOCIATION = "protein_disease_association"
+    MIRNA_PROTEIN_INTERACTION = auto()
 
 
-class ExampleAdapterProteinProteinEdgeField(Enum):
+class mirDIPAdapterMirnaGeneEdgeField(Enum):
     """
     Define possible fields the adapter can provide for protein-protein edges.
     """
 
-    INTERACTION_TYPE = "interaction_type"
-    INTERACTION_SOURCE = "interaction_source"
+    GENE_SYMBOL = "GENE_SYMBOL"
+    GENE_UNIPROT_ID = "GENE_UNIPROT_ID"  # mapping though pypath
+    MICRORNA = "MICRORNA"
+    RANK = "RANK"
+    SCORE = "SCORE"
+    SOURCE = "SOURCE_NAME"
+    ORIGINAL_SOURCE_GENE_SYMBOL = "GENE_SYMBOL_ORI"
+    ORIGINAL_SOURCE_MICRORNA = "MICRORNA_ORI"
+    SCORE_CLASS = "SCORE_CLASS"
 
 
-class ExampleAdapterProteinDiseaseEdgeField(Enum):
+class mirDIPAdapter:
     """
-    Define possible fields the adapter can provide for protein-disease edges.
-    """
-
-    ASSOCIATION_TYPE = "association_type"
-    ASSOCIATION_SOURCE = "association_source"
-
-
-class ExampleAdapter:
-    """
-    Example BioCypher adapter. Generates nodes and edges for creating a
-    knowledge graph.
+    BioCypher adapter for mirDIP. Generates miRNA and protein nodes and
+    miRNA-protein edges for creating a knowledge graph.
 
     Args:
         fields (list): List of fields to include in the node.
@@ -73,239 +55,162 @@ class ExampleAdapter:
     def __init__(
         self,
         node_types: str = None,
-        node_fields: str = None,
         edge_types: str = None,
         edge_fields: str = None,
+        test_mode: bool = False,
     ):
-        self._set_types_and_fields(
-            node_types, node_fields, edge_types, edge_fields
-        )
+        self._set_types_and_fields(node_types, edge_types, edge_fields)
+
+        self.data_source = "mirDIP"
+        self.data_version = "5.2"
+        self.data_licence = "free to use, copy, and modify for academic and non-commercial purposes"
+
+        self.test_mode = test_mode
 
     def get_nodes(self):
         """
         Returns a generator of node tuples for node types specified in the
         adapter constructor.
         """
-        self.nodes = []
 
-        if ExampleAdapterNodeType.PROTEIN in self.node_types:
-            [
-                self.nodes.append(Protein(fields=self.node_fields))
-                for _ in range(100)
-            ]
+        if mirDIPAdapterNodeType.PROTEIN in self.node_types:
 
-        if ExampleAdapterNodeType.DISEASE in self.node_types:
-            [
-                self.nodes.append(Disease(fields=self.node_fields))
-                for _ in range(100)
-            ]
+            logger.debug("Generating gene nodes.")
 
-        for node in self.nodes:
-            yield (node.get_id(), node.get_label(), node.get_properties())
+            self.unmapped_gene_symbols = set()
 
-    def get_edges(self, probability: float = 0.3):
+            gene_symbols = set(self.data.get_column("GENE_SYMBOL").to_list())
+
+            for gene_symbol in tqdm(gene_symbols):
+
+                # get ensg id from pypath
+                uniprot_id = mapping.map_name(
+                    name=gene_symbol,
+                    id_type="genesymbol",
+                    target_id_type="uniprot",
+                    ncbi_tax_id=9606,
+                )
+
+                if not uniprot_id:
+
+                    # get original gene symbol from self.data
+                    original_gene_symbol = (
+                        self.data.filter(pl.col("GENE_SYMBOL") == gene_symbol)
+                        .get_column("GENE_SYMBOL_ORI")
+                        .to_list()[0]
+                    )
+
+                    if original_gene_symbol == gene_symbol:
+                        self.unmapped_gene_symbols.add(gene_symbol)
+                        continue
+
+                    uniprot_id = mapping.map_name(
+                        name=original_gene_symbol,
+                        id_type="genesymbol",
+                        target_id_type="uniprot",
+                        ncbi_tax_id=9606,
+                    )
+
+                if not uniprot_id:
+                    self.unmapped_gene_symbols.add(gene_symbol)
+                    continue
+
+                props = {
+                    "gene_symbol": gene_symbol,
+                    "source": self.data_source,
+                    "version": self.data_version,
+                    "licence": self.data_licence,
+                }
+
+                for id in uniprot_id:
+                    yield (id, "protein", props)
+
+            print(self.unmapped_gene_symbols)
+            print(len(self.unmapped_gene_symbols))
+
+        if mirDIPAdapterNodeType.MICRORNA in self.node_types:
+
+            logger.debug("Generating miRNA nodes.")
+
+            mirs = set(self.data.get_column("MICRORNA").to_list())
+
+            for mir in mirs:
+
+                props = {
+                    "source": self.data_source,
+                    "version": self.data_version,
+                    "licence": self.data_licence,
+                }
+
+                yield (mir, "mirna", props)
+
+    def get_edges(self):
         """
         Returns a generator of edge tuples for edge types specified in the
         adapter constructor.
         """
-        if not self.nodes:
-            raise ValueError("No nodes found. Please run get_nodes() first.")
 
-        for node in self.nodes:
-            if random.random() < probability:
-                other_node = random.choice(self.nodes)
+        logger.debug("Generating miRNA-gene edges.")
 
-                # generate random relationship id by choosing upper or lower letters and integers, length 10, and joining them
-                relationship_id = "".join(
-                    random.choice(string.ascii_letters + string.digits)
-                    for _ in range(10)
-                )
+        pass
 
-                # determine type of edge from other_node type
-                if (
-                    isinstance(other_node, Protein)
-                    and ExampleAdapterEdgeType.PROTEIN_PROTEIN_INTERACTION
-                    in self.edge_types
-                ):
-                    edge_type = (
-                        ExampleAdapterEdgeType.PROTEIN_PROTEIN_INTERACTION.value
-                    )
-                elif (
-                    isinstance(other_node, Disease)
-                    and ExampleAdapterEdgeType.PROTEIN_DISEASE_ASSOCIATION
-                    in self.edge_types
-                ):
-                    edge_type = (
-                        ExampleAdapterEdgeType.PROTEIN_DISEASE_ASSOCIATION.value
-                    )
-
-                yield (
-                    relationship_id,
-                    node.get_id(),
-                    other_node.get_id(),
-                    edge_type,
-                    {"example_proptery": "example_value"},
-                )
-
-    def get_node_count(self):
-        """
-        Returns the number of nodes generated by the adapter.
-        """
-        return len(self.get_nodes())
-
-    def _set_types_and_fields(
-        self, node_types, node_fields, edge_types, edge_fields
-    ):
+    def _set_types_and_fields(self, node_types, edge_types, edge_fields):
         if node_types:
             self.node_types = node_types
         else:
-            self.node_types = [type for type in ExampleAdapterNodeType]
-
-        if node_fields:
-            self.node_fields = node_fields
-        else:
-            self.node_fields = [
-                field
-                for field in chain(
-                    ExampleAdapterProteinField,
-                    ExampleAdapterDiseaseField,
-                )
-            ]
+            self.node_types = [type for type in mirDIPAdapterNodeType]
 
         if edge_types:
             self.edge_types = edge_types
         else:
-            self.edge_types = [type for type in ExampleAdapterEdgeType]
+            self.edge_types = [type for type in mirDIPAdapterEdgeType]
 
         if edge_fields:
             self.edge_fields = edge_fields
         else:
             self.edge_fields = [field for field in chain()]
 
-
-class Node:
-    """
-    Base class for nodes.
-    """
-
-    def __init__(self):
-        self.id = None
-        self.label = None
-        self.properties = {}
-
-    def get_id(self):
+    def _read_data(self):
         """
-        Returns the node id.
+        Read mirDIP data from the data directory.
         """
-        return self.id
 
-    def get_label(self):
-        """
-        Returns the node label.
-        """
-        return self.label
+        logger.info("Reading mirDIP data from disk.")
 
-    def get_properties(self):
-        """
-        Returns the node properties.
-        """
-        return self.properties
+        path = os.path.join("data", "mirDIP_Bidirectional_search_v_5_2")
 
+        # column names: load README.txt using polars
+        # each column name is on a separate line, skip the first line
+        columns = pl.read_csv(os.path.join(path, "README.txt"))
 
-class Protein(Node):
-    """
-    Generates instances of proteins.
-    """
+        # first column to list
+        columns = columns[
+            "Columns for file: mirDIP_Bidirectional_search_v.5.txt"
+        ].to_list()
 
-    def __init__(self, fields: list = None):
-        self.fields = fields
-        self.id = self._generate_id()
-        self.label = "uniprot_protein"
-        self.properties = self._generate_properties()
+        # read data from mirDIP_Bidirectional_search_v.5.txt, using columns as
+        # column names
+        if not self.test_mode:
 
-    def _generate_id(self):
-        """
-        Generate a random UniProt-style id.
-        """
-        lets = [random.choice(string.ascii_uppercase) for _ in range(3)]
-        nums = [random.choice(string.digits) for _ in range(3)]
-
-        # join alternating between lets and nums
-        return "".join([x for y in zip(lets, nums) for x in y])
-
-    def _generate_properties(self):
-        properties = {}
-
-        ## random amino acid sequence
-        if (
-            self.fields is not None
-            and ExampleAdapterProteinField.SEQUENCE in self.fields
-        ):
-
-            # random int between 50 and 250
-            l = random.randint(50, 250)
-
-            properties["sequence"] = "".join(
-                [random.choice("ACDEFGHIKLMNPQRSTVWY") for _ in range(l)],
+            self.data = pl.read_csv(
+                os.path.join(path, "mirDIP_Bidirectional_search_v.5.txt"),
+                has_header=False,
+                new_columns=columns,
             )
 
-        ## random description
-        if (
-            self.fields is not None
-            and ExampleAdapterProteinField.DESCRIPTION in self.fields
-        ):
-            properties["description"] = " ".join(
-                [random.choice(string.ascii_lowercase) for _ in range(10)],
+        else:
+
+            self.data = pl.read_csv(
+                os.path.join(path, "mirDIP_Bidirectional_search_v.5.txt"),
+                has_header=False,
+                new_columns=columns,
+                n_rows=200,
             )
 
-        ## taxon
-        if (
-            self.fields is not None
-            and ExampleAdapterProteinField.TAXON in self.fields
-        ):
-            properties["taxon"] = "9606"
+        # # show data where GENE_SYMBOL and GENE_SYMBOL_ORI are not the same
+        # print(
+        #     self.data.filter(pl.col("GENE_SYMBOL") != pl.col("GENE_SYMBOL_ORI"))
+        # )
 
-        return properties
-
-
-class Disease(Node):
-    """
-    Generates instances of diseases.
-    """
-
-    def __init__(self, fields: list = None):
-        self.fields = fields
-        self.id = self._generate_id()
-        self.label = "do_disease"
-        self.properties = self._generate_properties()
-
-    def _generate_id(self):
-        """
-        Generate a random disease id.
-        """
-        nums = [random.choice(string.digits) for _ in range(8)]
-
-        return f"DOID:{''.join(nums)}"
-
-    def _generate_properties(self):
-        properties = {}
-
-        ## random name
-        if (
-            self.fields is not None
-            and ExampleAdapterDiseaseField.NAME in self.fields
-        ):
-            properties["name"] = " ".join(
-                [random.choice(string.ascii_lowercase) for _ in range(10)],
-            )
-
-        ## random description
-        if (
-            self.fields is not None
-            and ExampleAdapterDiseaseField.DESCRIPTION in self.fields
-        ):
-            properties["description"] = " ".join(
-                [random.choice(string.ascii_lowercase) for _ in range(10)],
-            )
-
-        return properties
+        # # show data where MICRORNA and MICRORNA_ORI are not the same
+        # print(self.data.filter(pl.col("MICRORNA") != pl.col("MICRORNA_ORI")))

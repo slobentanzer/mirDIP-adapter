@@ -9,6 +9,8 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.10"
 biocypher = { git = "https://github.com/saezlab/BioCypher.git", branch = "main" }
+polars = "^0.16.1"
+pypath-omnipath = "^0.14.33"
 
 [build-system]
 requires = ["poetry-core"]
