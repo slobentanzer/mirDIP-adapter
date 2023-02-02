@@ -147,8 +147,8 @@ class mirDIPAdapter:
 
                 yield (
                     None,
-                    f"uniprot:{uniprot}",
                     mir_name,
+                    f"uniprot:{uniprot}",
                     "mirna_protein_interaction",
                     props,
                 )
@@ -203,7 +203,7 @@ class mirDIPAdapter:
                 os.path.join(path, "mirDIP_Bidirectional_search_v.5.txt"),
                 has_header=False,
                 new_columns=self.columns,
-                n_rows=200,
+                n_rows=2000,
             )
 
         # # show data where GENE_SYMBOL and GENE_SYMBOL_ORI are not the same

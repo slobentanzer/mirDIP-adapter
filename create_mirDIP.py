@@ -12,6 +12,7 @@ driver = biocypher.Driver(
     user_schema_config_path="config/schema_config.yaml",
     skip_bad_relationships=True,  # Neo4j admin import option
     skip_duplicate_nodes=True,  # Neo4j admin import option
+    wipe=True,  # Neo4j admin import option
 )
 
 # Take a look at the ontology structure of the KG according to the schema
