@@ -10,12 +10,7 @@ microRNA:
     preferred_id: name
     label_in_input: mirna
     
-protein interaction:
+microRNA protein interaction:
     is_a: pairwise molecular interaction
     represented_as: edge
-    label_in_input: protein_protein_interaction
-
-protein to disease association:
-    is_a: association
-    represented_as: edge
-    label_in_input: protein_disease_association
+    label_in_input: mirna_protein_interaction

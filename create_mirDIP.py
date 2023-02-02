@@ -1,5 +1,5 @@
 import biocypher
-from adapter import (
+from mirDIP_adapter import (
     mirDIPAdapter,
     mirDIPAdapterNodeType,
     mirDIPAdapterEdgeType,
@@ -36,16 +36,16 @@ adapter = mirDIPAdapter(
     test_mode=True,
 )
 
-adapter._read_data()
+adapter.read_data()
 
 
 # Create a knowledge graph from the adapter
 driver.write_nodes(adapter.get_nodes())
-# driver.write_edges(adapter.get_edges())
+driver.write_edges(adapter.get_edges())
 
-# # Write admin import statement
-# driver.write_import_call()
+# Write admin import statement
+driver.write_import_call()
 
-# # Check output
-# driver.log_duplicates()
-# driver.log_missing_bl_types()
+# Check output
+driver.log_duplicates()
+driver.log_missing_bl_types()
