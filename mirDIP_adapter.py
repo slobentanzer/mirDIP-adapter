@@ -1,5 +1,7 @@
 from enum import Enum, auto
+import hashlib
 from itertools import chain
+import pickle
 import polars as pl
 import os
 from pypath.utils import mapping
@@ -59,6 +61,7 @@ class mirDIPAdapter:
         edge_types: str = None,
         edge_fields: str = None,
         test_mode: bool = False,
+        clear_cache: bool = False,
     ):
         self._set_types_and_fields(node_types, edge_types, edge_fields)
 
@@ -67,6 +70,7 @@ class mirDIPAdapter:
         self.data_licence = "free to use, copy, and modify for academic and non-commercial purposes"
 
         self.test_mode = test_mode
+        self.clear_cache = clear_cache
 
     def get_nodes(self):
         """
@@ -109,7 +113,7 @@ class mirDIPAdapter:
 
                 yield (mir, "mirna", props)
 
-    def get_edges(self):
+    def get_edges(self, batch):
         """
         Returns a generator of edge tuples for edge types specified in the
         adapter constructor.
@@ -117,9 +121,14 @@ class mirDIPAdapter:
 
         logger.debug("Generating miRNA-gene edges.")
 
-        for row in tqdm(self.data.iter_rows()):
+        for row in batch.iter_rows():
             gene_symbol = row[mirDIPAdapterMirnaGeneEdgeField.GENE_SYMBOL.value]
             mir_name = row[mirDIPAdapterMirnaGeneEdgeField.MICRORNA.value]
+
+            label = (
+                "mirna_protein_interaction_"
+                + row[mirDIPAdapterMirnaGeneEdgeField.SCORE_CLASS.value]
+            )
 
             props = {
                 "source": row[mirDIPAdapterMirnaGeneEdgeField.SOURCE.value],
@@ -127,31 +136,36 @@ class mirDIPAdapter:
                 "licence": self.data_licence,
             }
 
-            if mirDIPAdapterMirnaGeneEdgeField.RANK.value in self.edge_fields:
+            if mirDIPAdapterMirnaGeneEdgeField.RANK in self.edge_fields:
                 props["rank"] = row[mirDIPAdapterMirnaGeneEdgeField.RANK.value]
 
-            if mirDIPAdapterMirnaGeneEdgeField.SCORE.value in self.edge_fields:
-                props["score"]: row[mirDIPAdapterMirnaGeneEdgeField.SCORE.value]
+            if mirDIPAdapterMirnaGeneEdgeField.SCORE in self.edge_fields:
+                props["score"] = row[
+                    mirDIPAdapterMirnaGeneEdgeField.SCORE.value
+                ]
 
-            if (
-                mirDIPAdapterMirnaGeneEdgeField.SCORE_CLASS.value
-                in self.edge_fields
-            ):
-                props["score_class"]: row[
+            if mirDIPAdapterMirnaGeneEdgeField.SCORE_CLASS in self.edge_fields:
+                props["score_class"] = row[
                     mirDIPAdapterMirnaGeneEdgeField.SCORE_CLASS.value
                 ]
 
             uniprots = self.symbol_to_uniprot.get(gene_symbol, [])
 
+            # create md5 hash of row to use as edge id
+            _id = hashlib.md5(str(row).encode()).hexdigest()
+
             for uniprot in uniprots:
 
                 yield (
-                    None,
+                    _id,
                     mir_name,
                     f"uniprot:{uniprot}",
-                    "mirna_protein_interaction",
+                    label,
                     props,
                 )
+
+    def get_edge_batches(self, batch_size: int = int(1e6)):
+        return self.data.iter_slices(n_rows=batch_size)
 
     def _set_types_and_fields(self, node_types, edge_types, edge_fields):
         if node_types:
@@ -167,7 +181,9 @@ class mirDIPAdapter:
         if edge_fields:
             self.edge_fields = edge_fields
         else:
-            self.edge_fields = [field for field in chain()]
+            self.edge_fields = [
+                field for field in mirDIPAdapterMirnaGeneEdgeField
+            ]
 
     def read_data(self):
         """
@@ -203,8 +219,12 @@ class mirDIPAdapter:
                 os.path.join(path, "mirDIP_Bidirectional_search_v.5.txt"),
                 has_header=False,
                 new_columns=self.columns,
-                n_rows=2000,
+                n_rows=20_000_000,
             )
+
+        # show dataframe description
+        logger.info("Printing mirDIP dataframe description.")
+        print(self.data.describe())
 
         # # show data where GENE_SYMBOL and GENE_SYMBOL_ORI are not the same
         # print(
@@ -221,7 +241,24 @@ class mirDIPAdapter:
         Translate gene symbols to uniprot ids using pypath.
         """
 
-        logger.info("Translating gene symbols to uniprot ids.")
+        # load from pickle if available
+        if (
+            os.path.exists("data/symbol_to_uniprot.pickle")
+            and not self.clear_cache
+        ):
+
+            logger.info("Loading symbol_to_uniprot from pickle.")
+
+            with open("data/symbol_to_uniprot.pickle", "rb") as f:
+                self.symbol_to_uniprot = pickle.load(f)
+
+            with open("data/unmapped_gene_symbols.pickle", "rb") as f:
+                self.unmapped_gene_symbols = pickle.load(f)
+
+            return
+
+        # else use pypath
+        logger.info("Translating gene symbols to uniprot ids using pypath.")
 
         self.unmapped_gene_symbols = set()
         self.symbol_to_uniprot = {}
@@ -263,3 +300,11 @@ class mirDIPAdapter:
                 continue
 
             self.symbol_to_uniprot[gene_symbol] = uniprot_id
+
+        # pickle to file in data/
+        with open("data/symbol_to_uniprot.pickle", "wb") as f:
+            pickle.dump(self.symbol_to_uniprot, f)
+
+        # pickle unmapped gene symbols to file in data/
+        with open("data/unmapped_gene_symbols.pickle", "wb") as f:
+            pickle.dump(self.unmapped_gene_symbols, f)

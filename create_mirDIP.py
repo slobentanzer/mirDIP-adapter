@@ -1,4 +1,6 @@
 import biocypher
+from tqdm import tqdm
+
 from mirDIP_adapter import (
     mirDIPAdapter,
     mirDIPAdapterNodeType,
@@ -13,6 +15,7 @@ driver = biocypher.Driver(
     skip_bad_relationships=True,  # Neo4j admin import option
     skip_duplicate_nodes=True,  # Neo4j admin import option
     wipe=True,  # Neo4j admin import option
+    strict_mode=True,
 )
 
 # Take a look at the ontology structure of the KG according to the schema
@@ -35,6 +38,7 @@ adapter = mirDIPAdapter(
     edge_types=edge_types,
     # we can leave edge fields empty, defaulting to all fields in the adapter
     test_mode=True,
+    clear_cache=True,
 )
 
 adapter.read_data()
@@ -42,7 +46,10 @@ adapter.read_data()
 
 # Create a knowledge graph from the adapter
 driver.write_nodes(adapter.get_nodes())
-driver.write_edges(adapter.get_edges())
+
+batches = adapter.get_edge_batches()
+for batch in tqdm(batches):
+    driver.write_edges(adapter.get_edges(batch=batch))
 
 # Write admin import statement
 driver.write_import_call()

@@ -1,16 +1,32 @@
 # add your desired knowledge graph components here
 
 protein:
-    represented_as: node
-    preferred_id: uniprot
-    label_in_input: protein
+  represented_as: node
+  preferred_id: uniprot
+  label_in_input: protein
 
 microRNA:
-    represented_as: node
-    preferred_id: name
-    label_in_input: mirna
+  represented_as: node
+  preferred_id: name
+  label_in_input: mirna
     
 microRNA protein interaction:
-    is_a: pairwise molecular interaction
-    represented_as: edge
-    label_in_input: mirna_protein_interaction
+  is_a: pairwise molecular interaction
+  represented_as: node
+  preferred_id: [
+    very high,
+    high,
+    medium,
+    low
+  ]
+  label_in_input: [
+    mirna_protein_interaction_V, 
+    mirna_protein_interaction_H, 
+    mirna_protein_interaction_M, 
+    mirna_protein_interaction_L
+]
+  properties:
+    rank: float
+    score: float
+    score_class: string
+  
